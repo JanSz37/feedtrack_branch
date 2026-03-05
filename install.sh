@@ -103,12 +103,23 @@ if ! [[ "$APP_PORT" =~ ^[0-9]+$ ]]; then
     error "'$APP_PORT' nie jest prawidłowym numerem portu."
 fi
 
-# Zapisz port do .env (nadpisz jeśli już istnieje, dodaj jeśli nie)
-if grep -q '^APP_PORT=' "$ENV_FILE" 2>/dev/null; then
-    sed -i "s/^APP_PORT=.*/APP_PORT=$APP_PORT/" "$ENV_FILE"
+# Zapisz port i CSRF do .env (nadpisz jeśli już istnieją)
+if [ "$APP_PORT" = "80" ]; then
+    NEW_CSRF="http://localhost"
 else
-    echo "" >> "$ENV_FILE"
+    NEW_CSRF="http://localhost:$APP_PORT"
+fi
+
+if grep -q '^APP_PORT=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^APP_PORT=.*|APP_PORT=$APP_PORT|" "$ENV_FILE"
+else
     echo "APP_PORT=$APP_PORT" >> "$ENV_FILE"
+fi
+
+if grep -q '^CSRF_TRUSTED_ORIGINS=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^CSRF_TRUSTED_ORIGINS=.*|CSRF_TRUSTED_ORIGINS=$NEW_CSRF|" "$ENV_FILE"
+else
+    echo "CSRF_TRUSTED_ORIGINS=$NEW_CSRF" >> "$ENV_FILE"
 fi
 success "Port aplikacji: $APP_PORT"
 
