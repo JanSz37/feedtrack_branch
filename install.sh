@@ -23,7 +23,7 @@ NC='\033[0m' # No Color
 
 REGISTRY="download.feedtrack.pl"
 COMPOSE_FILE="docker-compose.client.yml"
-ENV_EXAMPLE=".env.example"
+ENV_EXAMPLE="env.example"
 ENV_FILE=".env"
 
 # ---------- Funkcje pomocnicze ----------
