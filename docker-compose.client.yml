@@ -1,0 +1,88 @@
+# ============================================================
+# FeedTrack — Docker Compose dla klienta
+#
+# Uruchamianie (po zalogowaniu do Harbor):
+#   docker compose -f docker-compose.client.yml up -d
+#
+# Plik .env musi znajdować się w tym samym katalogu.
+# ============================================================
+
+services:
+  # --- 1. Baza Danych ---
+  db:
+    image: postgres:15-alpine
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-feedtruck}
+      - POSTGRES_USER=${POSTGRES_USER:-feedtruck}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-feedtruck} -d ${POSTGRES_DB:-feedtruck}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- 2. Backend (Django) ---
+  web:
+    image: download.feedtrack.pl/feedtrack/feedtrack_branch:backend
+    restart: always
+    expose:
+      - "8000"
+    volumes:
+      - static_volume:/app/static
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # --- 3. Frontend (Nginx) ---
+  nginx:
+    image: download.feedtrack.pl/feedtrack/feedtrack_branch:nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - static_volume:/app/static:ro
+    depends_on:
+      web:
+        condition: service_started
+
+  # --- 4. Kolejka Zadań (Redis) ---
+  redis:
+    image: redis:alpine
+    restart: always
+
+  # --- 5. Przetwarzanie Tła (Celery Worker) ---
+  celery_worker:
+    image: download.feedtrack.pl/feedtrack/feedtrack_branch:backend
+    command: celery -A feedtruck worker -l info
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - SERVICE_ROLE=celery
+    depends_on:
+      - web
+      - redis
+
+  # --- 6. Harmonogram (Celery Beat) ---
+  celery_beat:
+    image: download.feedtrack.pl/feedtrack/feedtrack_branch:backend
+    command: celery -A feedtruck beat -l info
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - SERVICE_ROLE=celery
+    depends_on:
+      - web
+      - redis
+
+volumes:
+  postgres_data:
+  static_volume:
