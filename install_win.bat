@@ -88,7 +88,29 @@ if not exist "%ENV_FILE%" (
     echo [OK]    Plik .env istnieje.
 )
 
-:: ---------- 3. Logowanie do Harbor ----------
+:: ---------- 3. Wybor portu ----------
+
+echo.
+set /p "APP_PORT=Na jakim porcie uruchomic aplikacje? (domyslnie 80): "
+if "!APP_PORT!"=="" set "APP_PORT=80"
+
+:: Walidacja — czy to liczba
+for /f "delims=0123456789" %%i in ("!APP_PORT!") do (
+    echo [BLAD] '!APP_PORT!' nie jest prawidlowym numerem portu.
+    goto :error_exit
+)
+
+:: Zapisz port do .env (nadpisz jesli juz istnieje, dodaj jesli nie)
+findstr /b "APP_PORT=" "%ENV_FILE%" >nul 2>&1
+if %errorlevel% equ 0 (
+    powershell -NoProfile -Command "(Get-Content '%ENV_FILE%') -replace '^APP_PORT=.*', 'APP_PORT=!APP_PORT!' | Set-Content '%ENV_FILE%'"
+) else (
+    echo.>> "%ENV_FILE%"
+    echo APP_PORT=!APP_PORT!>> "%ENV_FILE%"
+)
+echo [OK]    Port aplikacji: !APP_PORT!
+
+:: ---------- 4. Logowanie do Harbor ----------
 
 echo.
 echo [INFO]  Logowanie do rejestru obrazow ^(%REGISTRY%^)...
@@ -149,7 +171,11 @@ echo ========================================
 echo    Instalacja zakonczona pomyslnie!
 echo ========================================
 echo.
-echo [OK]    Aplikacja dziala na: http://localhost
+if "!APP_PORT!"=="80" (
+    echo [OK]    Aplikacja dziala na: http://localhost
+) else (
+    echo [OK]    Aplikacja dziala na: http://localhost:!APP_PORT!
+)
 echo.
 echo [INFO]  Przydatne polecenia:
 echo   Logi:       %COMPOSE_CMD% -f %COMPOSE_FILE% logs -f
