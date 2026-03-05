@@ -92,7 +92,27 @@ else
     success "Plik .env istnieje."
 fi
 
-# ---------- 3. Logowanie do Harbor ----------
+# ---------- 3. Wybór portu ----------
+
+echo ""
+read -rp "Na jakim porcie uruchomić aplikację? (domyślnie 80): " APP_PORT
+APP_PORT=${APP_PORT:-80}
+
+# Walidacja — czy to liczba
+if ! [[ "$APP_PORT" =~ ^[0-9]+$ ]]; then
+    error "'$APP_PORT' nie jest prawidłowym numerem portu."
+fi
+
+# Zapisz port do .env (nadpisz jeśli już istnieje, dodaj jeśli nie)
+if grep -q '^APP_PORT=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s/^APP_PORT=.*/APP_PORT=$APP_PORT/" "$ENV_FILE"
+else
+    echo "" >> "$ENV_FILE"
+    echo "APP_PORT=$APP_PORT" >> "$ENV_FILE"
+fi
+success "Port aplikacji: $APP_PORT"
+
+# ---------- 4. Logowanie do Harbor ----------
 
 echo ""
 info "Logowanie do rejestru obrazów ($REGISTRY)..."
@@ -137,7 +157,11 @@ echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}   Instalacja zakończona pomyślnie!     ${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
-success "Aplikacja działa na: http://localhost"
+if [ "$APP_PORT" = "80" ]; then
+    success "Aplikacja działa na: http://localhost"
+else
+    success "Aplikacja działa na: http://localhost:$APP_PORT"
+fi
 echo ""
 info "Przydatne polecenia:"
 echo "  Logi:       $COMPOSE_CMD -f $COMPOSE_FILE logs -f"
