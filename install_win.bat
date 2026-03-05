@@ -100,13 +100,22 @@ for /f "delims=0123456789" %%i in ("!APP_PORT!") do (
     goto :error_exit
 )
 
-:: Zapisz port do .env (nadpisz jesli juz istnieje, dodaj jesli nie)
+:: Zapisz port i CSRF do .env (nadpisz jesli juz istnieja)
+set "NEW_CSRF=http://localhost:!APP_PORT!"
+if "!APP_PORT!"=="80" set "NEW_CSRF=http://localhost"
+
 findstr /b "APP_PORT=" "%ENV_FILE%" >nul 2>&1
 if %errorlevel% equ 0 (
     powershell -NoProfile -Command "(Get-Content '%ENV_FILE%') -replace '^APP_PORT=.*', 'APP_PORT=!APP_PORT!' | Set-Content '%ENV_FILE%'"
 ) else (
-    echo.>> "%ENV_FILE%"
     echo APP_PORT=!APP_PORT!>> "%ENV_FILE%"
+)
+
+findstr /b "CSRF_TRUSTED_ORIGINS=" "%ENV_FILE%" >nul 2>&1
+if %errorlevel% equ 0 (
+    powershell -NoProfile -Command "(Get-Content '%ENV_FILE%') -replace '^CSRF_TRUSTED_ORIGINS=.*', 'CSRF_TRUSTED_ORIGINS=!NEW_CSRF!' | Set-Content '%ENV_FILE%'"
+) else (
+    echo CSRF_TRUSTED_ORIGINS=!NEW_CSRF!>> "%ENV_FILE%"
 )
 echo [OK]    Port aplikacji: !APP_PORT!
 
