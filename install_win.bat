@@ -2,10 +2,6 @@
 chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
-REM ============================================================
-REM  FeedTrack - Skrypt instalacyjny (Windows)
-REM ============================================================
-
 set "REGISTRY=download.feedtrack.pl"
 set "COMPOSE_FILE=docker-compose.client.yml"
 set "ENV_EXAMPLE=env.example"
@@ -17,8 +13,6 @@ echo     FeedTrack - Instalacja
 echo ========================================
 echo.
 
-REM ---------- 1. Sprawdzenie wymagan ----------
-
 echo [INFO]  Sprawdzanie wymagan...
 
 where docker >nul 2>&1
@@ -28,7 +22,6 @@ if %errorlevel% neq 0 (
 )
 echo [OK]    Znaleziono: docker
 
-:: Najpierw sprawdzamy v2 (nowoczesny standard)
 docker compose version >nul 2>&1
 if %errorlevel% equ 0 (
     echo [OK]    Znaleziono: docker compose (v2)
@@ -36,7 +29,6 @@ if %errorlevel% equ 0 (
     goto :compose_ok
 )
 
-:: Jeśli nie ma v2, sprawdzamy v1
 where docker-compose >nul 2>&1
 if %errorlevel% equ 0 (
     echo [OK]    Znaleziono: docker-compose (v1)
@@ -44,7 +36,6 @@ if %errorlevel% equ 0 (
     goto :compose_ok
 )
 
-:: Jeśli dojdzie tutaj, znaczy że nic nie znalazł
 echo [BLAD] Nie znaleziono 'docker compose' ani 'docker-compose'.
 goto :error_exit
 
@@ -53,8 +44,6 @@ if not exist "%COMPOSE_FILE%" (
     echo [BLAD] Nie znaleziono pliku '%COMPOSE_FILE%'.
     goto :error_exit
 )
-
-REM ---------- 2. Plik .env ----------
 
 echo.
 if not exist "%ENV_FILE%" (
@@ -72,8 +61,6 @@ if not exist "%ENV_FILE%" (
 ) else (
     echo [OK]    Plik .env istnieje.
 )
-
-REM ---------- 3. Wybor portu ----------
 
 echo.
 set /p "APP_PORT=Na jakim porcie uruchomic aplikacje? (domyslnie 80): "
@@ -101,8 +88,6 @@ if %errorlevel% equ 0 (
     echo CSRF_TRUSTED_ORIGINS=!NEW_CSRF!>> "%ENV_FILE%"
 )
 
-REM ---------- 4. Logowanie do Harbor ----------
-
 echo.
 echo [INFO]  Logowanie do %REGISTRY%...
 set /p "HARBOR_KEY=Podaj klucz dostepu (Base64): "
@@ -119,8 +104,6 @@ if %errorlevel% neq 0 (
     echo [BLAD] Logowanie nie powiodlo sie.
     goto :error_exit
 )
-
-REM ---------- 5. Start ----------
 
 echo.
 echo [INFO]  Pobieranie i uruchamianie...
