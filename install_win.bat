@@ -28,21 +28,27 @@ if %errorlevel% neq 0 (
 )
 echo [OK]    Znaleziono: docker
 
+:: Najpierw sprawdzamy v2 (nowoczesny standard)
 docker compose version >nul 2>&1
 if %errorlevel% equ 0 (
     echo [OK]    Znaleziono: docker compose (v2)
     set "COMPOSE_CMD=docker compose"
-) else (
-    where docker-compose >nul 2>&1
-    if %errorlevel% equ 0 (
-        echo [OK]    Znaleziono: docker-compose (v1)
-        set "COMPOSE_CMD=docker-compose"
-    ) else (
-        echo [BLAD] Nie znaleziono 'docker compose' ani 'docker-compose'.
-        goto :error_exit
-    )
+    goto :compose_ok
 )
 
+:: Jeśli nie ma v2, sprawdzamy v1
+where docker-compose >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK]    Znaleziono: docker-compose (v1)
+    set "COMPOSE_CMD=docker-compose"
+    goto :compose_ok
+)
+
+:: Jeśli dojdzie tutaj, znaczy że nic nie znalazł
+echo [BLAD] Nie znaleziono 'docker compose' ani 'docker-compose'.
+goto :error_exit
+
+:compose_ok
 if not exist "%COMPOSE_FILE%" (
     echo [BLAD] Nie znaleziono pliku '%COMPOSE_FILE%'.
     goto :error_exit
