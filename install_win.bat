@@ -78,14 +78,14 @@ findstr /b "APP_PORT=" "%ENV_FILE%" >nul 2>&1
 if %errorlevel% equ 0 (
     powershell -NoProfile -Command "(Get-Content '%ENV_FILE%') -replace '^APP_PORT=.*', 'APP_PORT=!APP_PORT!' | Set-Content '%ENV_FILE%'"
 ) else (
-    echo APP_PORT=!APP_PORT!>> "%ENV_FILE%"
+    echo.>> "%ENV_FILE%" & echo APP_PORT=!APP_PORT!>> "%ENV_FILE%"
 )
 
 findstr /b "CSRF_TRUSTED_ORIGINS=" "%ENV_FILE%" >nul 2>&1
 if %errorlevel% equ 0 (
     powershell -NoProfile -Command "(Get-Content '%ENV_FILE%') -replace '^CSRF_TRUSTED_ORIGINS=.*', 'CSRF_TRUSTED_ORIGINS=!NEW_CSRF!' | Set-Content '%ENV_FILE%'"
 ) else (
-    echo CSRF_TRUSTED_ORIGINS=!NEW_CSRF!>> "%ENV_FILE%"
+    echo.>> "%ENV_FILE%" & echo CSRF_TRUSTED_ORIGINS=!NEW_CSRF!>> "%ENV_FILE%"
 )
 
 echo.
