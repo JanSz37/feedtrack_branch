@@ -161,7 +161,42 @@ echo ""
 $COMPOSE_CMD -f "$COMPOSE_FILE" pull
 $COMPOSE_CMD -f "$COMPOSE_FILE" up -d
 
-# ---------- 5. Podsumowanie ----------
+# ---------- 5. Instalacja narzędzia ftadmin ----------
+
+echo ""
+info "Instalacja narzędzia 'ftadmin'..."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FTADMIN_SRC="$SCRIPT_DIR/ftadmin"
+
+if [ ! -f "$FTADMIN_SRC" ]; then
+    warn "Nie znaleziono pliku 'ftadmin' obok install.sh — pomijam instalację narzędzia."
+else
+    if [ "$(id -u)" -eq 0 ]; then
+        BIN_DIR="/usr/local/bin"; CONF_DIR="/etc/feedtrack"; SUDO=""
+    elif command -v sudo >/dev/null 2>&1; then
+        BIN_DIR="/usr/local/bin"; CONF_DIR="/etc/feedtrack"; SUDO="sudo"
+    else
+        BIN_DIR="$HOME/.local/bin"; CONF_DIR="$HOME/.config/feedtrack"; SUDO=""
+    fi
+
+    $SUDO mkdir -p "$BIN_DIR" "$CONF_DIR"
+    $SUDO cp "$FTADMIN_SRC" "$BIN_DIR/ftadmin"
+    $SUDO chmod +x "$BIN_DIR/ftadmin"
+
+    $SUDO tee "$CONF_DIR/ftadmin.conf" >/dev/null <<EOF
+INSTALL_DIR=$SCRIPT_DIR
+COMPOSE_FILE=$COMPOSE_FILE
+EOF
+
+    success "Zainstalowano 'ftadmin' w: $BIN_DIR/ftadmin"
+    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+        warn "Katalog $BIN_DIR nie jest w PATH. Dodaj go do profilu powłoki, np.:"
+        warn "  export PATH=\"$BIN_DIR:\$PATH\""
+    fi
+fi
+
+# ---------- 6. Podsumowanie ----------
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
@@ -179,4 +214,5 @@ echo "  Logi:       $COMPOSE_CMD -f $COMPOSE_FILE logs -f"
 echo "  Status:     $COMPOSE_CMD -f $COMPOSE_FILE ps"
 echo "  Zatrzymaj:  $COMPOSE_CMD -f $COMPOSE_FILE down"
 echo "  Aktualizuj: $COMPOSE_CMD -f $COMPOSE_FILE pull && $COMPOSE_CMD -f $COMPOSE_FILE up -d"
+echo "  Administracja: ftadmin help"
 echo ""

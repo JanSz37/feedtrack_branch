@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# ftadmin — narzędzie administracyjne FeedTrack (klient, Unix)
+set -euo pipefail
+
+CONF_LOCATIONS=("/etc/feedtrack/ftadmin.conf" "$HOME/.config/feedtrack/ftadmin.conf")
+
+# --- Wczytaj konfigurację (INSTALL_DIR, COMPOSE_FILE) ---
+CONF=""
+for loc in "${CONF_LOCATIONS[@]}"; do
+    if [ -f "$loc" ]; then CONF="$loc"; break; fi
+done
+if [ -z "$CONF" ]; then
+    echo "BŁĄD: Nie znaleziono pliku konfiguracyjnego ftadmin.conf." >&2
+    echo "Czy aplikacja została zainstalowana skryptem install.sh?" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$CONF"   # definiuje INSTALL_DIR i COMPOSE_FILE
+
+if [ -z "${INSTALL_DIR:-}" ] || [ ! -d "$INSTALL_DIR" ]; then
+    echo "BŁĄD: Katalog instalacji INSTALL_DIR='${INSTALL_DIR:-}' nie istnieje." >&2
+    exit 1
+fi
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.client.yml}"
+ENV_FILE="$INSTALL_DIR/.env"
+
+# --- Wykryj polecenie compose ---
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+else
+    echo "BŁĄD: Nie znaleziono 'docker compose' ani 'docker-compose'." >&2
+    exit 1
+fi
+
+compose() { ( cd "$INSTALL_DIR" && "${COMPOSE[@]}" -f "$COMPOSE_FILE" "$@" ); }
+
+get_env() {
+    # get_env KEY -> wypisuje wartość z .env (bez sourcowania, odporne na znaki specjalne)
+    grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r'
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  version)
+    compose exec -T web python manage.py ftadmin_version
+    ;;
+  passwd)
+    compose exec web python manage.py ftadmin_passwd
+    ;;
+  connection)
+    compose exec -T web python manage.py ftadmin_connection
+    ;;
+  update)
+    echo "[*] Pobieranie najnowszych obrazów z rejestru..."
+    compose pull
+    echo "[*] Restart aplikacji (odtworzenie zmienionych kontenerów)..."
+    compose up -d
+    echo "[OK] Aktualizacja zakończona."
+    ;;
+  config)
+    port="$(get_env APP_PORT)"; [ -z "$port" ] && port="80 (domyślny)"
+    token="$(get_env CENTRAL_SYNC_TOKEN)"
+    echo "=== Konfiguracja FeedTrack ==="
+    echo "Katalog instalacji: $INSTALL_DIR"
+    echo "Plik compose:       $COMPOSE_FILE"
+    echo "Port aplikacji:     $port"
+    echo "Adres Centrali:     $(get_env CENTRAL_SYNC_URL)"
+    echo "CSRF origins:       $(get_env CSRF_TRUSTED_ORIGINS)"
+    echo "DEBUG:              $(get_env DEBUG)"
+    echo "ALLOWED_HOSTS:      $(get_env ALLOWED_HOSTS)"
+    if [ -n "$token" ] && [ "${#token}" -ge 4 ]; then
+        echo "Token Centrali:     ****${token: -4}"
+    elif [ -n "$token" ]; then
+        echo "Token Centrali:     (ustawiony)"
+    else
+        echo "Token Centrali:     (brak)"
+    fi
+    echo ""
+    echo "=== Status kontenerów ==="
+    compose ps
+    ;;
+  ""|help|-h|--help)
+    cat <<'EOF'
+ftadmin — narzędzie administracyjne FeedTrack
+
+Użycie: ftadmin <komenda>
+
+  version      Pokazuje wersję FeedTrack
+  passwd       Ustawia nowe hasło konta administratora
+  update       Aktualizuje FeedTrack (pull + restart)
+  config       Pokazuje podstawowe parametry konfiguracji
+  connection   Testuje połączenie z serwerem centralnym
+EOF
+    ;;
+  *)
+    echo "Nieznana komenda: $cmd" >&2
+    echo "Uruchom 'ftadmin help', aby zobaczyć dostępne komendy." >&2
+    exit 1
+    ;;
+esac
