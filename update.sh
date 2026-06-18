@@ -119,7 +119,13 @@ fi
 
 echo ""
 info "Pobieranie nowych obrazów z rejestru..."
-( cd "$INSTALL_DIR" && $COMPOSE_CMD -f "$COMPOSE_FILE" pull )
+if ! ( cd "$INSTALL_DIR" && $COMPOSE_CMD -f "$COMPOSE_FILE" pull ); then
+    warn "Pobieranie nie powiodło się — prawdopodobnie brak autoryzacji do rejestru."
+    harbor_login
+    info "Ponawiam pobieranie..."
+    ( cd "$INSTALL_DIR" && $COMPOSE_CMD -f "$COMPOSE_FILE" pull ) \
+        || error "Pobieranie nadal się nie powiodło. Sprawdź klucz dostępu i połączenie."
+fi
 
 info "Uruchamianie zaktualizowanych kontenerów..."
 ( cd "$INSTALL_DIR" && $COMPOSE_CMD -f "$COMPOSE_FILE" up -d )
