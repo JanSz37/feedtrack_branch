@@ -23,6 +23,27 @@ error()   { echo -e "${RED}[BŁĄD]${NC}  $1"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONF_LOCATIONS=("/etc/feedtrack/ftadmin.conf" "$HOME/.config/feedtrack/ftadmin.conf")
+REGISTRY="download.feedtrack.pl"
+
+# Logowanie do rejestru obrazów na podstawie klucza Base64 (login:hasło).
+harbor_login() {
+    echo ""
+    info "Logowanie do rejestru obrazów ($REGISTRY)..."
+    read -rp "Podaj klucz dostępu (Base64): " HARBOR_KEY
+    [ -n "$HARBOR_KEY" ] || error "Klucz nie może być pusty."
+
+    DECODED=$(echo "$HARBOR_KEY" | base64 -d 2>/dev/null) \
+        || error "Nie udało się odkodować klucza. Sprawdź, czy jest prawidłowy (Base64)."
+
+    HARBOR_USER="${DECODED%%:*}"
+    HARBOR_PASS="${DECODED#*:}"
+    { [ -n "$HARBOR_USER" ] && [ -n "$HARBOR_PASS" ]; } \
+        || error "Odkodowany klucz ma nieprawidłowy format. Oczekiwano: login:hasło (Base64)."
+
+    echo "$HARBOR_PASS" | docker login "$REGISTRY" -u "$HARBOR_USER" --password-stdin \
+        || error "Logowanie do $REGISTRY nie powiodło się. Sprawdź klucz dostępu."
+    success "Zalogowano do $REGISTRY jako $HARBOR_USER"
+}
 
 echo ""
 echo -e "${CYAN}========================================${NC}"
