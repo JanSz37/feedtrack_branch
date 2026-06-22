@@ -38,7 +38,8 @@ compose() { ( cd "$INSTALL_DIR" && "${COMPOSE[@]}" -f "$COMPOSE_FILE" "$@" ); }
 
 get_env() {
     # get_env KEY -> wypisuje wartość z .env (bez sourcowania, odporne na znaki specjalne)
-    grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r'
+    # `|| true` — brak klucza (grep zwraca 1) nie może wywrócić skryptu przez set -e/pipefail.
+    { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r'; } || true
 }
 
 NGINX_IMAGE="download.feedtrack.pl/feedtrack/feedtrack_branch:nginx"

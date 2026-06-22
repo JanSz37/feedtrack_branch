@@ -28,8 +28,9 @@ NGINX_IMAGE="download.feedtrack.pl/feedtrack/feedtrack_branch:nginx"
 CERTS_DIR="certs"
 
 # Odczyt wartości z .env (bez sourcowania, odporne na znaki specjalne).
+# `|| true` — brak klucza (grep zwraca 1) nie może wywrócić skryptu przez set -e/pipefail.
 get_env_val() {
-    grep -E "^$2=" "$1" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r'
+    { grep -E "^$2=" "$1" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r'; } || true
 }
 
 # Zapis zmiennej do .env: nadpisuje jeśli istnieje, w przeciwnym razie dopisuje.
@@ -90,7 +91,7 @@ ensure_certs() {
 
     local server_name="localhost"
     if [ -f "$dir/.env" ]; then
-        server_name="$(grep -E '^SERVER_NAME=' "$dir/.env" 2>/dev/null | head -n1 | cut -d= -f2-)"
+        server_name="$({ grep -E '^SERVER_NAME=' "$dir/.env" 2>/dev/null | head -n1 | cut -d= -f2-; } || true)"
         server_name="${server_name:-localhost}"
     fi
 
