@@ -24,6 +24,93 @@ error()   { echo -e "${RED}[BŁĄD]${NC}  $1"; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONF_LOCATIONS=("/etc/feedtrack/ftadmin.conf" "$HOME/.config/feedtrack/ftadmin.conf")
 REGISTRY="download.feedtrack.pl"
+NGINX_IMAGE="download.feedtrack.pl/feedtrack/feedtrack_branch:nginx"
+CERTS_DIR="certs"
+
+# Odczyt wartości z .env (bez sourcowania, odporne na znaki specjalne).
+get_env_val() {
+    grep -E "^$2=" "$1" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r'
+}
+
+# Zapis zmiennej do .env: nadpisuje jeśli istnieje, w przeciwnym razie dopisuje.
+set_env_val() {
+    local file="$1" key="$2" value="$3"
+    if grep -q "^${key}=" "$file" 2>/dev/null; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+    else
+        echo "${key}=${value}" >> "$file"
+    fi
+}
+
+# Dla starych instalacji (sprzed TLS) migruje .env na HTTPS: ustawia CSRF na https://,
+# włącza Secure cookies oraz dopisuje SERVER_NAME/HTTPS_PORT, jeśli brak.
+# Idempotentne — przy już zmigrowanym .env nic szkodliwego nie zmienia.
+migrate_env_to_https() {
+    local env="$1/.env"
+    [ -f "$env" ] || return 0
+
+    # SERVER_NAME: użyj istniejącego; w innym razie wyłuskaj host ze starego CSRF;
+    # jeśli się nie da (lub to localhost) — dopytaj.
+    local server_name; server_name="$(get_env_val "$env" SERVER_NAME)"
+    if [ -z "$server_name" ]; then
+        local csrf host
+        csrf="$(get_env_val "$env" CSRF_TRUSTED_ORIGINS)"
+        host="${csrf#*://}"; host="${host%%/*}"; host="${host%%:*}"
+        if [ -z "$host" ] || [ "$host" = "localhost" ]; then
+            read -rp "Pod jaką nazwą hosta / adresem IP działa aplikacja? (domyślnie localhost): " server_name
+            server_name="${server_name:-localhost}"
+        else
+            server_name="$host"
+        fi
+    fi
+
+    local https_port; https_port="$(get_env_val "$env" HTTPS_PORT)"; https_port="${https_port:-443}"
+
+    local new_csrf
+    if [ "$https_port" = "443" ]; then
+        new_csrf="https://$server_name"
+    else
+        new_csrf="https://$server_name:$https_port"
+    fi
+
+    set_env_val "$env" SERVER_NAME "$server_name"
+    set_env_val "$env" HTTPS_PORT "$https_port"
+    set_env_val "$env" SECURE_COOKIES "True"
+    set_env_val "$env" CSRF_TRUSTED_ORIGINS "$new_csrf"
+    success "Ustawienia HTTPS w .env zaktualizowane (host: $server_name, CSRF: $new_csrf)."
+}
+
+# Dla starych instalacji (sprzed TLS) generuje self-signed cert, jeśli go brak.
+# Bez certu kontener nginx z nową konfiguracją HTTPS nie wstanie.
+ensure_certs() {
+    local dir="$1"
+    if [ -f "$dir/$CERTS_DIR/fullchain.pem" ] && [ -f "$dir/$CERTS_DIR/privkey.pem" ]; then
+        return 0
+    fi
+
+    local server_name="localhost"
+    if [ -f "$dir/.env" ]; then
+        server_name="$(grep -E '^SERVER_NAME=' "$dir/.env" 2>/dev/null | head -n1 | cut -d= -f2-)"
+        server_name="${server_name:-localhost}"
+    fi
+
+    local san
+    if [[ "$server_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        san="IP:${server_name},DNS:localhost,IP:127.0.0.1"
+    else
+        san="DNS:${server_name},DNS:localhost,IP:127.0.0.1"
+    fi
+
+    info "Brak certyfikatu — generuję self-signed dla '${server_name}'..."
+    mkdir -p "$dir/$CERTS_DIR"
+    docker run --rm -v "$dir/$CERTS_DIR":/certs "$NGINX_IMAGE" \
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -keyout /certs/privkey.pem -out /certs/fullchain.pem \
+        -subj "/CN=${server_name}" \
+        -addext "subjectAltName=${san}" \
+        || error "Nie udało się wygenerować certyfikatu."
+    success "Certyfikat utworzony w $dir/$CERTS_DIR."
+}
 
 # Logowanie do rejestru obrazów na podstawie klucza Base64 (login:hasło).
 harbor_login() {
@@ -126,6 +213,13 @@ if ! ( cd "$INSTALL_DIR" && $COMPOSE_CMD -f "$COMPOSE_FILE" pull ); then
     ( cd "$INSTALL_DIR" && $COMPOSE_CMD -f "$COMPOSE_FILE" pull ) \
         || error "Pobieranie nadal się nie powiodło. Sprawdź klucz dostępu i połączenie."
 fi
+
+# Zmigruj .env na HTTPS (CSRF, Secure cookies, SERVER_NAME) — przed generacją certu,
+# żeby cert dostał poprawny SERVER_NAME.
+migrate_env_to_https "$INSTALL_DIR"
+
+# Upewnij się, że certyfikat istnieje, zanim wystartuje nginx z konfiguracją HTTPS.
+ensure_certs "$INSTALL_DIR"
 
 info "Uruchamianie zaktualizowanych kontenerów..."
 ( cd "$INSTALL_DIR" && $COMPOSE_CMD -f "$COMPOSE_FILE" up -d )

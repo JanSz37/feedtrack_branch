@@ -41,6 +41,29 @@ get_env() {
     grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r'
 }
 
+NGINX_IMAGE="download.feedtrack.pl/feedtrack/feedtrack_branch:nginx"
+
+ensure_certs() {
+    # Generuje self-signed cert, jeśli go brak (np. instalacja sprzed wprowadzenia HTTPS).
+    # Bez certu kontener nginx z konfiguracją HTTPS nie wstanie.
+    local certs="$INSTALL_DIR/certs"
+    [ -f "$certs/fullchain.pem" ] && [ -f "$certs/privkey.pem" ] && return 0
+
+    local server_name; server_name="$(get_env SERVER_NAME)"; server_name="${server_name:-localhost}"
+    local san
+    if [[ "$server_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        san="IP:${server_name},DNS:localhost,IP:127.0.0.1"
+    else
+        san="DNS:${server_name},DNS:localhost,IP:127.0.0.1"
+    fi
+    echo "[*] Brak certyfikatu — generuję self-signed dla '${server_name}'..."
+    mkdir -p "$certs"
+    docker run --rm -v "$certs":/certs "$NGINX_IMAGE" \
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -keyout /certs/privkey.pem -out /certs/fullchain.pem \
+        -subj "/CN=${server_name}" -addext "subjectAltName=${san}"
+}
+
 cmd="${1:-}"
 shift || true
 
@@ -57,17 +80,22 @@ case "$cmd" in
   update)
     echo "[*] Pobieranie najnowszych obrazów z rejestru..."
     compose pull
+    ensure_certs
     echo "[*] Restart aplikacji (odtworzenie zmienionych kontenerów)..."
     compose up -d
     echo "[OK] Aktualizacja zakończona."
     ;;
   config)
     port="$(get_env APP_PORT)"; [ -z "$port" ] && port="80 (domyślny)"
+    https_port="$(get_env HTTPS_PORT)"; [ -z "$https_port" ] && https_port="443 (domyślny)"
+    server_name="$(get_env SERVER_NAME)"; [ -z "$server_name" ] && server_name="localhost (domyślny)"
     token="$(get_env CENTRAL_SYNC_TOKEN)"
     echo "=== Konfiguracja FeedTrack ==="
     echo "Katalog instalacji: $INSTALL_DIR"
     echo "Plik compose:       $COMPOSE_FILE"
-    echo "Port aplikacji:     $port"
+    echo "Port HTTP:          $port"
+    echo "Port HTTPS:         $https_port"
+    echo "Host (SERVER_NAME): $server_name"
     echo "Adres Centrali:     $(get_env CENTRAL_SYNC_URL)"
     echo "CSRF origins:       $(get_env CSRF_TRUSTED_ORIGINS)"
     echo "DEBUG:              $(get_env DEBUG)"

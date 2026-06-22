@@ -14,11 +14,26 @@ Poniższa instrukcja opisuje proces uruchomienia aplikacji w Twoim środowisku.
    - Windows: Kliknij dwukrotnie plik `install_win.bat` (lub uruchom z poziomu Wiersza Poleceń).
    - Linux / macOS: Otwórz terminal w folderze, nadaj uprawnienia i uruchom: `chmod +x install.sh && ./install.sh`
 3. Postępuj zgodnie z komunikatami w konsoli:
+   - Zapytany o port HTTP, wpisz numer portu (lub zostaw puste dla domyślnego 80). Ruch z tego portu jest przekierowywany na HTTPS.
+   - Zapytany o port HTTPS, wpisz numer portu (lub zostaw puste dla domyślnego 443).
+   - Zapytany o nazwę hosta / adres IP, podaj adres, pod którym będziesz wchodzić do aplikacji (np. `feedtrack.firma.local` albo `192.168.1.50`; domyślnie `localhost`). Ta wartość trafia do certyfikatu — musi pasować do adresu w przeglądarce.
    - Zapytany o klucz dostępu, wklej otrzymany ciąg Base64 i wciśnij Enter.
-   - Zapytany o port aplikacji, wpisz pożądany numer portu (np. 8080 lub zostaw puste dla domyślnego portu 80) i wciśnij Enter.
-4. Aplikacja pobierze swoje komponenty z rejestru i uruchomi się automatycznie.
+4. Aplikacja pobierze swoje komponenty z rejestru, wygeneruje certyfikat i uruchomi się automatycznie.
 
-Po zakończeniu logowania i uruchomienia, wejdź w przeglądarce pod wskazany przez instalatora adres (np. http://localhost lub http://localhost:8080).
+Po zakończeniu logowania i uruchomienia, wejdź w przeglądarce pod wskazany przez instalatora adres (np. `https://localhost`).
+
+## HTTPS i certyfikat self-signed
+
+Aplikacja działa po HTTPS. Instalator automatycznie generuje **certyfikat self-signed** (zapisany w katalogu `./certs` obok plików instalacyjnych, ważny 10 lat) i wpina go do serwera nginx.
+
+Ponieważ certyfikat nie pochodzi od zaufanego urzędu (CA), przy pierwszym wejściu **przeglądarka pokaże ostrzeżenie o niezaufanym połączeniu**. To oczekiwane. Masz dwie opcje:
+- Kliknąć „Zaawansowane” → „Przejdź dalej” i zaakceptować wyjątek, albo
+- Zaimportować plik `./certs/fullchain.pem` do magazynu zaufanych certyfikatów na stacjach klienckich (zalecane przy wielu użytkownikach).
+
+Uwagi:
+- Adres w przeglądarce musi pasować do nazwy/IP podanej podczas instalacji (pole SAN certyfikatu). Wejście pod innym adresem da błąd niezgodności nazwy.
+- Wejście po `http://` jest automatycznie przekierowywane na `https://`.
+- Aby zmienić nazwę hosta lub wygenerować certyfikat od nowa, usuń katalog `./certs` i uruchom ponownie instalator/aktualizację (`update.sh`).
 
 ## Konfiguracja synchronizacji i autoryzacji
 

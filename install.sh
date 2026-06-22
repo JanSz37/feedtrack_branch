@@ -22,9 +22,11 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 REGISTRY="download.feedtrack.pl"
+NGINX_IMAGE="download.feedtrack.pl/feedtrack/feedtrack_branch:nginx"
 COMPOSE_FILE="docker-compose.client.yml"
 ENV_EXAMPLE="env.example"
 ENV_FILE=".env"
+CERTS_DIR="certs"
 
 # ---------- Funkcje pomocnicze ----------
 
@@ -38,6 +40,47 @@ check_command() {
         error "Nie znaleziono polecenia '$1'. Zainstaluj je i uruchom skrypt ponownie."
     fi
     success "Znaleziono: $1"
+}
+
+# Zapisuje zmienną do .env: nadpisuje jeśli istnieje, w przeciwnym razie dopisuje.
+set_env_var() {
+    local key="$1" value="$2"
+    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+    else
+        echo "${key}=${value}" >> "$ENV_FILE"
+    fi
+}
+
+# Generuje self-signed certyfikat (jeśli jeszcze nie istnieje) z SAN na podany host/IP.
+# Używa openssl z wnętrza obrazu nginx — host nie potrzebuje openssl.
+generate_certs() {
+    local server_name="$1"
+    mkdir -p "$CERTS_DIR"
+
+    if [ -f "$CERTS_DIR/fullchain.pem" ] && [ -f "$CERTS_DIR/privkey.pem" ]; then
+        success "Certyfikat już istnieje w ./$CERTS_DIR — pomijam generowanie."
+        return 0
+    fi
+
+    # Zbuduj listę SAN. Jeśli SERVER_NAME wygląda jak IPv4 — wpis IP, w innym razie DNS.
+    # Zawsze dorzucamy localhost/127.0.0.1 dla dostępu z lokalnej maszyny.
+    local san
+    if [[ "$server_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        san="IP:${server_name},DNS:localhost,IP:127.0.0.1"
+    else
+        san="DNS:${server_name},DNS:localhost,IP:127.0.0.1"
+    fi
+
+    info "Generuję self-signed certyfikat dla '${server_name}' (SAN: ${san})..."
+    docker run --rm -v "$(pwd)/$CERTS_DIR":/certs "$NGINX_IMAGE" \
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -keyout /certs/privkey.pem -out /certs/fullchain.pem \
+        -subj "/CN=${server_name}" \
+        -addext "subjectAltName=${san}" \
+        || error "Nie udało się wygenerować certyfikatu."
+
+    success "Certyfikat zapisany w ./$CERTS_DIR (ważny 10 lat)."
 }
 
 # ---------- 1. Sprawdzenie wymagań ----------
@@ -92,36 +135,37 @@ else
     success "Plik .env istnieje."
 fi
 
-# ---------- 3. Wybór portu ----------
+# ---------- 3. Porty, host i HTTPS ----------
 
 echo ""
-read -rp "Na jakim porcie uruchomić aplikację? (domyślnie 80): " APP_PORT
+read -rp "Na jakim porcie HTTP (przekierowanie na HTTPS)? (domyślnie 80): " APP_PORT
 APP_PORT=${APP_PORT:-80}
-
-# Walidacja — czy to liczba
 if ! [[ "$APP_PORT" =~ ^[0-9]+$ ]]; then
     error "'$APP_PORT' nie jest prawidłowym numerem portu."
 fi
 
-# Zapisz port i CSRF do .env (nadpisz jeśli już istnieją)
-if [ "$APP_PORT" = "80" ]; then
-    NEW_CSRF="http://localhost"
-else
-    NEW_CSRF="http://localhost:$APP_PORT"
+read -rp "Na jakim porcie HTTPS? (domyślnie 443): " HTTPS_PORT
+HTTPS_PORT=${HTTPS_PORT:-443}
+if ! [[ "$HTTPS_PORT" =~ ^[0-9]+$ ]]; then
+    error "'$HTTPS_PORT' nie jest prawidłowym numerem portu."
 fi
 
-if grep -q '^APP_PORT=' "$ENV_FILE" 2>/dev/null; then
-    sed -i "s|^APP_PORT=.*|APP_PORT=$APP_PORT|" "$ENV_FILE"
+read -rp "Pod jaką nazwą hosta / adresem IP będzie dostępna aplikacja? (domyślnie localhost): " SERVER_NAME
+SERVER_NAME=${SERVER_NAME:-localhost}
+
+# Origin dla CSRF — ze schematem https i portem (port pomijany, gdy 443).
+if [ "$HTTPS_PORT" = "443" ]; then
+    NEW_CSRF="https://$SERVER_NAME"
 else
-    echo "APP_PORT=$APP_PORT" >> "$ENV_FILE"
+    NEW_CSRF="https://$SERVER_NAME:$HTTPS_PORT"
 fi
 
-if grep -q '^CSRF_TRUSTED_ORIGINS=' "$ENV_FILE" 2>/dev/null; then
-    sed -i "s|^CSRF_TRUSTED_ORIGINS=.*|CSRF_TRUSTED_ORIGINS=$NEW_CSRF|" "$ENV_FILE"
-else
-    echo "CSRF_TRUSTED_ORIGINS=$NEW_CSRF" >> "$ENV_FILE"
-fi
-success "Port aplikacji: $APP_PORT"
+set_env_var "APP_PORT" "$APP_PORT"
+set_env_var "HTTPS_PORT" "$HTTPS_PORT"
+set_env_var "SERVER_NAME" "$SERVER_NAME"
+set_env_var "CSRF_TRUSTED_ORIGINS" "$NEW_CSRF"
+set_env_var "SECURE_COOKIES" "True"
+success "Porty: HTTP $APP_PORT → HTTPS $HTTPS_PORT, host: $SERVER_NAME"
 
 # ---------- 4. Logowanie do Harbor ----------
 
@@ -159,6 +203,10 @@ info "Pobieranie obrazów i uruchamianie aplikacji..."
 echo ""
 
 $COMPOSE_CMD -f "$COMPOSE_FILE" pull
+
+# Certyfikat musi istnieć ZANIM wystartuje nginx (montowany jako wolumen).
+generate_certs "$SERVER_NAME"
+
 $COMPOSE_CMD -f "$COMPOSE_FILE" up -d
 
 # ---------- 5. Instalacja narzędzia ftadmin ----------
@@ -203,11 +251,14 @@ echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}   Instalacja zakończona pomyślnie!     ${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
-if [ "$APP_PORT" = "80" ]; then
-    success "Aplikacja działa na: http://localhost"
+if [ "$HTTPS_PORT" = "443" ]; then
+    success "Aplikacja działa na: https://$SERVER_NAME"
 else
-    success "Aplikacja działa na: http://localhost:$APP_PORT"
+    success "Aplikacja działa na: https://$SERVER_NAME:$HTTPS_PORT"
 fi
+echo ""
+warn "Certyfikat jest self-signed — przeglądarka pokaże ostrzeżenie o niezaufanym połączeniu."
+warn "Zaakceptuj wyjątek w przeglądarce lub zaimportuj ./$CERTS_DIR/fullchain.pem do zaufanych certyfikatów."
 echo ""
 info "Przydatne polecenia:"
 echo "  Logi:       $COMPOSE_CMD -f $COMPOSE_FILE logs -f"
