@@ -53,7 +53,7 @@ set_env_var() {
 }
 
 # Generuje self-signed certyfikat (jeśli jeszcze nie istnieje) z SAN na podany host/IP.
-# Używa openssl z wnętrza obrazu nginx — host nie potrzebuje openssl.
+# Preferuje openssl z hosta; jeśli go brak — używa openssl z obrazu nginx.
 generate_certs() {
     local server_name="$1"
     mkdir -p "$CERTS_DIR"
@@ -73,12 +73,18 @@ generate_certs() {
     fi
 
     info "Generuję self-signed certyfikat dla '${server_name}' (SAN: ${san})..."
-    docker run --rm -v "$(pwd)/$CERTS_DIR":/certs "$NGINX_IMAGE" \
+    if command -v openssl >/dev/null 2>&1; then
         openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-        -keyout /certs/privkey.pem -out /certs/fullchain.pem \
-        -subj "/CN=${server_name}" \
-        -addext "subjectAltName=${san}" \
-        || error "Nie udało się wygenerować certyfikatu."
+            -keyout "$CERTS_DIR/privkey.pem" -out "$CERTS_DIR/fullchain.pem" \
+            -subj "/CN=${server_name}" -addext "subjectAltName=${san}" \
+            || error "Nie udało się wygenerować certyfikatu (openssl z hosta)."
+    else
+        docker run --rm --entrypoint openssl -v "$(pwd)/$CERTS_DIR":/certs "$NGINX_IMAGE" \
+            req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -keyout /certs/privkey.pem -out /certs/fullchain.pem \
+            -subj "/CN=${server_name}" -addext "subjectAltName=${san}" \
+            || error "Nie udało się wygenerować certyfikatu. Zainstaluj openssl na hoście albo zaktualizuj obraz nginx (z openssl)."
+    fi
 
     success "Certyfikat zapisany w ./$CERTS_DIR (ważny 10 lat)."
 }

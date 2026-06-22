@@ -155,9 +155,16 @@ if %errorlevel% equ 0 (
 )
 
 echo [INFO]  Generuje self-signed certyfikat dla '!GC_HOST!' (SAN: !SAN!)...
-docker run --rm -v "%CD%\%CERTS_DIR%:/certs" "%NGINX_IMAGE%" openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout /certs/privkey.pem -out /certs/fullchain.pem -subj "/CN=!GC_HOST!" -addext "subjectAltName=!SAN!"
+where openssl >nul 2>&1
+if %errorlevel% equ 0 (
+    REM openssl dostepny na hoscie (np. Git for Windows) - uzyj go bezposrednio.
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout "%CERTS_DIR%\privkey.pem" -out "%CERTS_DIR%\fullchain.pem" -subj "/CN=!GC_HOST!" -addext "subjectAltName=!SAN!"
+) else (
+    REM Fallback: openssl z obrazu nginx (--entrypoint pomija wrapper nginx).
+    docker run --rm --entrypoint openssl -v "%CD%\%CERTS_DIR%:/certs" "%NGINX_IMAGE%" req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout /certs/privkey.pem -out /certs/fullchain.pem -subj "/CN=!GC_HOST!" -addext "subjectAltName=!SAN!"
+)
 if %errorlevel% neq 0 (
-    echo [BLAD] Nie udalo sie wygenerowac certyfikatu.
+    echo [BLAD] Nie udalo sie wygenerowac certyfikatu. Zainstaluj openssl albo zaktualizuj obraz nginx.
     exit /b 1
 )
 echo [OK]    Certyfikat zapisany w .\%CERTS_DIR% (wazny 10 lat).

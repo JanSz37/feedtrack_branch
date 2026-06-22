@@ -104,12 +104,20 @@ ensure_certs() {
 
     info "Brak certyfikatu — generuję self-signed dla '${server_name}'..."
     mkdir -p "$dir/$CERTS_DIR"
-    docker run --rm -v "$dir/$CERTS_DIR":/certs "$NGINX_IMAGE" \
+    if command -v openssl >/dev/null 2>&1; then
+        # Najpierw openssl z hosta — działa nawet gdy obraz nginx go nie ma.
         openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-        -keyout /certs/privkey.pem -out /certs/fullchain.pem \
-        -subj "/CN=${server_name}" \
-        -addext "subjectAltName=${san}" \
-        || error "Nie udało się wygenerować certyfikatu."
+            -keyout "$dir/$CERTS_DIR/privkey.pem" -out "$dir/$CERTS_DIR/fullchain.pem" \
+            -subj "/CN=${server_name}" -addext "subjectAltName=${san}" \
+            || error "Nie udało się wygenerować certyfikatu (openssl z hosta)."
+    else
+        # Fallback: openssl z obrazu nginx (--entrypoint pomija wrapper nginx).
+        docker run --rm --entrypoint openssl -v "$dir/$CERTS_DIR":/certs "$NGINX_IMAGE" \
+            req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -keyout /certs/privkey.pem -out /certs/fullchain.pem \
+            -subj "/CN=${server_name}" -addext "subjectAltName=${san}" \
+            || error "Nie udało się wygenerować certyfikatu. Zainstaluj openssl na hoście albo zaktualizuj obraz nginx (z openssl)."
+    fi
     success "Certyfikat utworzony w $dir/$CERTS_DIR."
 }
 

@@ -59,10 +59,16 @@ ensure_certs() {
     fi
     echo "[*] Brak certyfikatu — generuję self-signed dla '${server_name}'..."
     mkdir -p "$certs"
-    docker run --rm -v "$certs":/certs "$NGINX_IMAGE" \
+    if command -v openssl >/dev/null 2>&1; then
         openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-        -keyout /certs/privkey.pem -out /certs/fullchain.pem \
-        -subj "/CN=${server_name}" -addext "subjectAltName=${san}"
+            -keyout "$certs/privkey.pem" -out "$certs/fullchain.pem" \
+            -subj "/CN=${server_name}" -addext "subjectAltName=${san}"
+    else
+        docker run --rm --entrypoint openssl -v "$certs":/certs "$NGINX_IMAGE" \
+            req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -keyout /certs/privkey.pem -out /certs/fullchain.pem \
+            -subj "/CN=${server_name}" -addext "subjectAltName=${san}"
+    fi
 }
 
 cmd="${1:-}"
